@@ -1,0 +1,9 @@
+(library
+ (name websocket_client)
+ (public_name websocket-client)
+ (libraries lwt.unix
+            uri
+            cryptokit
+            tls
+            tls.lwt)
+ (preprocess (pps lwt_ppx)))

@@ -105,6 +105,13 @@ let inet_addr_of_string host =
     with Not_found ->
       Printf.sprintf "cannot resolve '%s'" host |> failwith 
 
+let open_tcp_client (address, port) =
+  let fd = Lwt_unix.(socket PF_INET SOCK_STREAM 0) in
+  Lwt_unix.(setsockopt fd TCP_NODELAY true);
+  let address = Unix.ADDR_INET (address, port) in
+  let%lwt () = Lwt_unix.connect fd address in
+  Lwt.return fd
+
 let connect ?(settings = None) uri =
   let settings = Option.value ~default: Settings.default settings in
   let uri = Uri.of_string uri in
@@ -114,14 +121,18 @@ let connect ?(settings = None) uri =
   let use_tls () =
     match settings.Settings.tls with
     | Some authenticator ->
-        Tls_lwt.connect authenticator (host, port)
-        |> Lwt_result.ok
+        let tls_client = Tls.Config.client authenticator () in
+        let%lwt fd = open_tcp_client (inet_addr_of_string host, port) in
+        let%lwt tls = Tls_lwt.Unix.client_of_fd tls_client ~host fd in
+        Tls_lwt.of_t tls
+        |> Lwt.return_ok
     | None -> Lwt.return_error "TLS authenticator is not provided" in
 
   let use_plain () =
-    let address = Unix.ADDR_INET (inet_addr_of_string host, port) in
-    Lwt_io.open_connection address
-    |> Lwt_result.ok in
+    let%lwt fd = open_tcp_client (inet_addr_of_string host, port) in
+    let input = Lwt_io.of_fd ~mode: Input fd in
+    let output = Lwt_io.of_fd ~mode: Output fd in
+    Lwt.return_ok (input, output) in
 
   let init_websocket uri proc =
     match%lwt proc () with

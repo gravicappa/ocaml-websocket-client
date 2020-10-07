@@ -61,26 +61,29 @@ let make_request_headers uri (Util.Base64.Base64 key) =
 let parse_response_header_field str =
   match String.index_opt str ':' with
   | Some pos ->
-      let key = String.sub str 0 pos |> String.lowercase_ascii in
-      let value = String.sub str (pos + 2) (String.length str - pos - 2) in
+      let key = String.sub str 0 pos
+                |> String.lowercase_ascii in
+      let value = String.sub str (pos + 2) (String.length str - pos - 2)
+                  |> String.lowercase_ascii in
       key, String.trim value
   | None -> str, ""
 
 let parse_response input key =
-  let error_for_field name =
-    ("Unexpected value for " ^ name) |> Lwt.return_error in
+  let error_for_field name value =
+    Printf.sprintf "Unexpected value for %s: '%s'" name value
+    |> Lwt.return_error in
 
   let rec loop () =
     let%lwt line = Lwt_io.read_line input in
     match parse_response_header_field line with
     | "", "" -> Lwt.return_ok ()
     | "upgrade", "websocket" -> loop ()
-    | "upgrade", _ -> error_for_field "Upgrade"
-    | "connection", "Upgrade" -> loop ()
-    | "connection", _ -> error_for_field "Connection"
+    | "upgrade", value -> error_for_field "Upgrade" value
+    | "connection", "upgrade" -> loop ()
+    | "connection", value -> error_for_field "Connection" value
     | "Sec-WebSocket-Accept", resp_key when is_key_ok key resp_key ->
         loop ()
-    | "Sec-WebSocket-Accept", _ -> error_for_field "Sec-WebSocket-Accept"
+    | "Sec-WebSocket-Accept", value -> error_for_field "Sec-WebSocket-Accept" value
     | _ -> loop () in
 
   match%lwt Lwt_io.read_line input with
@@ -148,43 +151,43 @@ let create ?settings uri proc =
         Buffer.reset buf;
         resp in
 
-  let apply_payload payload convert =
+  let apply_payload t payload convert =
     let data = final_payload payload in
-    convert data |> proc in
+    convert data |> proc t in
 
-  let rec read_loop input mq =
-    match%lwt Frame.read input with
+  let rec read_loop t mq =
+    match%lwt Frame.read t.input with
     | End ->
         Mqueue.put mq Request.End;
-        let%lwt () = proc Response.End in
+        let%lwt () = proc t Response.End in
         Lwt.return_unit
 
     | Error error ->
         Mqueue.put mq End;
-        let%lwt () = Response.Error error |> proc in
+        let%lwt () = Response.Error error |> proc t in
         Lwt.return_unit
 
     | Frame frame ->
         match frame.op with
         | Close ->
             Mqueue.put mq End;
-            proc Response.End
+            proc t Response.End
         | Ping ->
             Frame.Control.pong_of_ping frame
             |> Request.frame
             |> Mqueue.put mq;
-            read_loop input mq
-        | Pong -> read_loop input mq
-        | Reserved _ -> read_loop input mq
+            read_loop t mq
+        | Pong -> read_loop t mq
+        | Reserved _ -> read_loop t mq
         | Continuation ->
             Buffer.add_bytes buf frame.payload;
-            read_loop input mq
+            read_loop t mq
         | Text ->
-            let%lwt () = apply_payload frame.payload Response.text in
-            read_loop input mq
+            let%lwt () = apply_payload t frame.payload Response.text in
+            read_loop t mq
         | Binary ->
-            let%lwt () = apply_payload frame.payload Response.binary in
-            read_loop input mq in
+            let%lwt () = apply_payload t frame.payload Response.binary in
+            read_loop t mq in
 
   let rec write_loop output mq =
     match%lwt Mqueue.take mq with
@@ -201,10 +204,11 @@ let create ?settings uri proc =
   | Error error -> Lwt.return_error error
   | Ok (input, output) ->
       let mqueue = Mqueue.create () in
-      let read_loop = read_loop input mqueue in
+      let t = { mqueue; input; output; } in
+      let read_loop = read_loop t mqueue in
       let write_loop = write_loop output mqueue in
       Lwt.async (fun () -> wait input output [read_loop; write_loop]);
-      Lwt.return_ok { mqueue; input; output; }
+      Lwt.return_ok t
 
 let create_exc ?settings uri proc =
   let settings = Option.value ~default: Settings.default settings in

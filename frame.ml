@@ -60,18 +60,17 @@ let read_length input buf = function
       let a1 = Bytes.get_uint16_be buf 2 in
       let a2 = Bytes.get_uint16_be buf 4 in
       let a3 = Bytes.get_uint16_be buf 6 in
-      if a0 > 63 then
+      if a0 > 0x7ffff then
         Lwt.return_error "Too large buffer"
       else
         Lwt.return_ok ((a0 lsl 48) lor (a1 lsl 32) lor (a2 lsl 16) lor a3)
   | 126 ->
-      let%lwt () = Lwt_io.read_into_exactly input buf 0 4 in
-      let a0 = Bytes.get_uint16_be buf 0 in
-      let a1 = Bytes.get_uint16_be buf 2 in
-      if a0 > 63 then
+      let%lwt () = Lwt_io.read_into_exactly input buf 0 2 in
+      let a = Bytes.get_uint16_be buf 0 in
+      if a > 0x7ffff then
         Lwt.return_error "Too large buffer"
       else
-        Lwt.return_ok ((a0 lsl 16) lor a1)
+        Lwt.return_ok a
   | n -> Lwt.return_ok n
 
 let read_mask input = function
@@ -148,7 +147,7 @@ let write output { finish; op; masked; payload_length; mask; payload } =
                |> Lwt_io.BE.write_int16 output in
 
   let%lwt () = match payload_length with
-               | n when n > 65536 ->
+               | n when n > 65535 ->
                    Int64.of_int n
                    |> Lwt_io.BE.write_int64 output
                | n when n > 127 -> Lwt_io.BE.write_int16 output n

@@ -1,8 +1,14 @@
 module Settings = struct
   type t = {
     tls: X509_lwt.authenticator option;
+    ping_interval_s: float;
   }
-  let default = { tls = None }
+
+  let default = { tls = None; ping_interval_s = 30. }
+
+  let with_tls tls t = { t with tls = Some tls }
+
+  let with_ping_interval_s seconds t = { t with ping_interval_s = seconds }
 end
 
 module Response = struct
@@ -121,7 +127,7 @@ let connect ?(settings = None) uri =
   let use_tls () =
     match settings.Settings.tls with
     | Some authenticator ->
-        let tls_client = Tls.Config.client authenticator () in
+        let tls_client = Tls.Config.client ~authenticator () in
         let%lwt fd = open_tcp_client (inet_addr_of_string host, port) in
         let%lwt tls = Tls_lwt.Unix.client_of_fd tls_client ~host fd in
         Tls_lwt.of_t tls
@@ -207,8 +213,16 @@ let create ?settings uri proc =
         write_loop output mq
     | Request.End -> Lwt.return_unit in
 
+  let rec ping_loop mq interval_s =
+    let%lwt () = Lwt_unix.sleep interval_s in
+    Frame.Control.ping ()
+    |> Request.frame
+    |> Mqueue.put mq;
+    ping_loop mq interval_s in
+
   let wait input output promises =
-    let%lwt () = Lwt.pick promises in
+    let%lwt () = try%lwt Lwt.pick promises
+                 with Unix.Unix_error _ -> Lwt.return_unit in
     Lwt.join [safe_close input; safe_close output] in
 
   match%lwt connect ~settings uri with
@@ -216,9 +230,15 @@ let create ?settings uri proc =
   | Ok (input, output) ->
       let mqueue = Mqueue.create () in
       let t = { mqueue; input; output; } in
-      let read_loop = read_loop t mqueue in
-      let write_loop = write_loop output mqueue in
-      Lwt.async (fun () -> wait input output [read_loop; write_loop]);
+      let ping_interval_s = match settings with
+                            | Some { ping_interval_s; _ } -> ping_interval_s
+                            | None -> 30. in
+      let promises = [
+        read_loop t mqueue;
+        write_loop output mqueue;
+        ping_loop mqueue ping_interval_s;
+      ] in
+      Lwt.async (fun () -> wait input output promises);
       Lwt.return_ok t
 
 let create_exc ?settings uri proc =

@@ -42,8 +42,11 @@ type channel = t
 module Settings : sig
   type t = {
     tls: X509_lwt.authenticator option;
+    ping_interval_s: float;
   }
   val default: t
+  val with_tls: X509_lwt.authenticator -> t -> t
+  val with_ping_interval_s: float -> t -> t
 end
 
 module Response : sig

@@ -118,6 +118,8 @@ let open_tcp_client (address, port) =
   let%lwt () = Lwt_unix.connect fd address in
   Lwt.return fd
 
+let default_tls_settings = `Ca_dir "/etc/ssl/certs"
+
 let connect ?(settings = None) uri =
   let settings = Option.value ~default: Settings.default settings in
   let uri = Uri.of_string uri in
@@ -125,14 +127,16 @@ let connect ?(settings = None) uri =
   let port = uri_port uri in
 
   let use_tls () =
-    match settings.Settings.tls with
-    | Some authenticator ->
-        let tls_client = Tls.Config.client ~authenticator () in
-        let%lwt fd = open_tcp_client (inet_addr_of_string host, port) in
-        let%lwt tls = Tls_lwt.Unix.client_of_fd tls_client ~host fd in
-        Tls_lwt.of_t tls
-        |> Lwt.return_ok
-    | None -> Lwt.return_error "TLS authenticator is not provided" in
+    let%lwt authenticator =
+      match settings.Settings.tls with
+      | Some authenticator -> Lwt.return authenticator
+      | None -> X509_lwt.authenticator default_tls_settings in
+
+    let tls_client = Tls.Config.client ~authenticator () in
+    let%lwt fd = open_tcp_client (inet_addr_of_string host, port) in
+    let%lwt tls = Tls_lwt.Unix.client_of_fd tls_client ~host fd in
+    Tls_lwt.of_t tls
+    |> Lwt.return_ok in
 
   let use_plain () =
     let%lwt fd = open_tcp_client (inet_addr_of_string host, port) in

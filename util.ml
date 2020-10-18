@@ -1,5 +1,8 @@
 let random_bytes n =
-  let rng = Cryptokit.Random.system_rng () in
+  let rng = if Sys.win32 then
+              Cryptokit.Random.system_rng ()
+            else
+              Cryptokit.Random.device_rng "/dev/urandom" in
   let bytes = Bytes.create n in
   rng#random_bytes bytes 0 n;
   bytes

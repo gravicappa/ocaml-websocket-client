@@ -1,5 +1,5 @@
 let random_bytes n =
-  let rng = Cryptokit.Random.system_rng in
+  let rng = Cryptokit.Random.system_rng () in
   let bytes = Bytes.create n in
   rng#random_bytes bytes 0 n;
   bytes

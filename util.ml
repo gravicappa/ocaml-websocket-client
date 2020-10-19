@@ -3,6 +3,8 @@ let rng = if Sys.win32 then
           else
             Cryptokit.Random.device_rng "/dev/urandom"
 
+let () = at_exit (fun () -> rng#wipe)
+
 let random_bytes n =
   let bytes = Bytes.create n in
   rng#random_bytes bytes 0 n;

@@ -1,14 +1,14 @@
 module Settings = struct
   type t = {
     tls: X509_lwt.authenticator option;
-    ping_interval_s: float;
+    ping_interval_s: float option;
   }
 
-  let default = { tls = None; ping_interval_s = 30. }
+  let default = { tls = None; ping_interval_s = Some 30. }
 
   let with_tls tls t = { t with tls = Some tls }
 
-  let with_ping_interval_s seconds t = { t with ping_interval_s = seconds }
+  let with_ping_interval_s s t = { t with ping_interval_s = Some s }
 end
 
 module Response = struct
@@ -184,14 +184,14 @@ let create ?settings uri proc =
         Lwt.return_unit
 
     | Error error ->
-        Mqueue.put mq End;
+        Mqueue.put mq Request.End;
         let%lwt () = Response.Error error |> proc t in
         Lwt.return_unit
 
     | Frame frame ->
         match frame.op with
         | Close ->
-            Mqueue.put mq End;
+            Mqueue.put mq Request.End;
             proc t Response.End
         | Ping ->
             Frame.Control.pong_of_ping frame
@@ -229,19 +229,19 @@ let create ?settings uri proc =
                  with Unix.Unix_error _ -> Lwt.return_unit in
     Lwt.join [safe_close input; safe_close output] in
 
+  let add_ping_loop settings mqueue promises =
+    match settings with
+    | Some { Settings.ping_interval_s = Some seconds; _ } ->
+        ping_loop mqueue seconds :: promises
+    | _ -> promises in
+
   match%lwt connect ~settings uri with
   | Error error -> Lwt.return_error error
   | Ok (input, output) ->
       let mqueue = Mqueue.create () in
       let t = { mqueue; input; output; } in
-      let ping_interval_s = match settings with
-                            | Some { ping_interval_s; _ } -> ping_interval_s
-                            | None -> 30. in
-      let promises = [
-        read_loop t mqueue;
-        write_loop output mqueue;
-        ping_loop mqueue ping_interval_s;
-      ] in
+      let promises = [ read_loop t mqueue; write_loop output mqueue; ]
+                     |> add_ping_loop settings mqueue in
       Lwt.async (fun () -> wait input output promises);
       Lwt.return_ok t
 

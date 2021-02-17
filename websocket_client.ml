@@ -30,10 +30,13 @@ module Request = struct
   let frame frame = Frame frame
 end
 
+type state = Opened | Closed
+
 type channel = {
   mqueue: Request.t Mqueue.t;
   input: Lwt_io.input_channel;
   output: Lwt_io.output_channel;
+  mutable state: state;
 }
 
 type t = channel
@@ -192,6 +195,7 @@ let create ?settings uri proc =
         match frame.op with
         | Close ->
             Mqueue.put mq Request.End;
+            t.state <- Closed;
             proc t Response.End
         | Ping ->
             Frame.Control.pong_of_ping frame
@@ -224,9 +228,11 @@ let create ?settings uri proc =
     |> Mqueue.put mq;
     ping_loop mq interval_s in
 
-  let wait input output promises =
+  let wait t input output promises =
     let%lwt () = try%lwt Lwt.pick promises
                  with Unix.Unix_error _ -> Lwt.return_unit in
+    t.state <- Closed;
+    let%lwt () = proc t Response.End in
     Lwt.join [safe_close input; safe_close output] in
 
   let add_ping_loop settings mqueue promises =
@@ -235,14 +241,15 @@ let create ?settings uri proc =
         ping_loop mqueue seconds :: promises
     | _ -> promises in
 
+  Util.init_random ();
   match%lwt connect ~settings uri with
   | Error error -> Lwt.return_error error
   | Ok (input, output) ->
       let mqueue = Mqueue.create () in
-      let t = { mqueue; input; output; } in
+      let t = { mqueue; input; output; state = Opened } in
       let promises = [ read_loop t mqueue; write_loop output mqueue; ]
                      |> add_ping_loop settings mqueue in
-      Lwt.async (fun () -> wait input output promises);
+      Lwt.async (fun () -> wait t input output promises);
       Lwt.return_ok t
 
 let create_exc ?settings uri proc =
@@ -251,13 +258,20 @@ let create_exc ?settings uri proc =
   | Ok t -> Lwt.return t
   | Error error -> Lwt.fail_with error
 
-let send_op { mqueue; _ } finish op payload =
-  Bytes.of_string payload
-  |> Frame.create ~finish ~op
-  |> Request.frame
-  |> Mqueue.put mqueue
+let send_op { mqueue; state; _ } finish op payload =
+  match state with
+  | Opened ->
+      Bytes.of_string payload
+      |> Frame.create ~finish ~op
+      |> Request.frame
+      |> Mqueue.put mqueue
+  | Closed -> ()
 
-let close { mqueue; _ } = Mqueue.put mqueue Request.End
+let close t =
+  t.state <- Closed;
+  Mqueue.put t.mqueue Request.End
+
+let is_open { state; _ } = state = Opened
 
 let send_text t payload = send_op t true Frame.Text payload
 

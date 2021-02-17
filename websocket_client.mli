@@ -66,6 +66,8 @@ val create_exc :
 
 val close : t -> unit
 
+val is_open : t -> bool
+
 val send_text : t -> string -> unit
 
 val send : t -> string -> unit

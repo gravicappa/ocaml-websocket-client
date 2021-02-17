@@ -7,6 +7,6 @@ build: ["dune" "build" "-j" jobs "-p" name]
 synopsis: "Simple websocket client"
 depends: ["lwt"
           "lwt_ppx"
-          "cryptokit"
+          "nocrypto"
           "uri"
           "tls"]

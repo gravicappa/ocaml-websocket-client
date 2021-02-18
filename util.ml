@@ -1,7 +1,7 @@
 let init_random =
   let initialized = ref false in
   fun () ->
-    if !initialized then
+    if not !initialized then
       let () = Nocrypto_entropy_unix.initialize () in
       initialized := true
 

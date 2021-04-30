@@ -1,6 +1,6 @@
 module Settings = struct
   type t = {
-    tls: X509_lwt.authenticator option;
+    tls: X509.Authenticator.t option;
     ping_interval_s: float option;
   }
 

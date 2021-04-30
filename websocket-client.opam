@@ -9,4 +9,4 @@ depends: ["lwt"
           "lwt_ppx"
           "nocrypto"
           "uri"
-          "tls"]
+          "tls" {>= "0.13.1"}]

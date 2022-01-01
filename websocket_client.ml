@@ -129,7 +129,7 @@ let connect ?(settings = None) uri =
   let host = uri_host uri in
   let port = uri_port uri in
 
-  let use_tls () =
+  let use_tls tls_host () =
     let%lwt authenticator =
       match settings.Settings.tls with
       | Some authenticator -> Lwt.return authenticator
@@ -137,7 +137,9 @@ let connect ?(settings = None) uri =
 
     let tls_client = Tls.Config.client ~authenticator () in
     let%lwt fd = open_tcp_client (inet_addr_of_string host, port) in
-    let%lwt tls = Tls_lwt.Unix.client_of_fd tls_client ~host fd in
+    let%lwt tls = Tls_lwt.Unix.client_of_fd tls_client
+                                            ~host: tls_host
+                                            fd in
     Tls_lwt.of_t tls
     |> Lwt.return_ok in
 
@@ -155,8 +157,15 @@ let connect ?(settings = None) uri =
         | Ok () -> Lwt.return_ok (input, output)
         | Error error -> Lwt.return_error error in
 
+  let tls_host host =
+    Result.bind (Domain_name.of_string host) Domain_name.host in
+
   match Uri.scheme uri with
-  | Some "wss" -> init_websocket uri use_tls
+  | Some "wss" ->
+      begin match tls_host host with
+      | Ok tls_host -> init_websocket uri (use_tls tls_host)
+      | Error (`Msg msg) -> Lwt.return_error msg
+      end
   | Some "ws"
   | None -> init_websocket uri use_plain
   | Some _ -> Lwt.return_error "Invalid uri scheme"

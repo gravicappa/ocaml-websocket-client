@@ -6,5 +6,5 @@
             nocrypto
             nocrypto.unix
             tls
-            tls.lwt)
+            tls-lwt)
  (preprocess (pps lwt_ppx)))

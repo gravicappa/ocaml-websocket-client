@@ -58,8 +58,10 @@ module Response : sig
 end
 
 val create :
-  ?settings:Settings.t ->
-  string -> (t -> Response.t -> unit Lwt.t) -> (t, string) Result.result Lwt.t
+  ?settings:Settings.t
+  -> string
+  -> (t -> Response.t -> unit Lwt.t)
+  -> (t, [`Msg of string]) result Lwt.t
 
 val create_exc :
   ?settings:Settings.t -> string -> (t -> Response.t -> unit Lwt.t) -> t Lwt.t

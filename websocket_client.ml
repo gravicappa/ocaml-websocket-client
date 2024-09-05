@@ -80,7 +80,7 @@ let parse_response_header_field str =
 let parse_response input key =
   let error_for_field name value =
     Printf.sprintf "Unexpected value for %s: '%s'" name value
-    |> Lwt.return_error in
+    |> fun a -> Lwt.return_error (`Msg a) in
 
   let rec loop () =
     let%lwt line = Lwt_io.read_line input in
@@ -97,7 +97,7 @@ let parse_response input key =
 
   match%lwt Lwt_io.read_line input with
   | "HTTP/1.1 101 Switching Protocols" -> loop ()
-  | str -> Lwt.return_error ("Wrong response status: " ^ str)
+  | str -> Lwt.return_error (`Msg ("Wrong response status: " ^ str))
 
 let handshake uri input output =
   let key = Util.(random_string 16 |> Base64.of_string) in
@@ -135,13 +135,15 @@ let connect ?(settings = None) uri =
       | Some authenticator -> Lwt.return authenticator
       | None -> X509_lwt.authenticator default_tls_settings in
 
-    let tls_client = Tls.Config.client ~authenticator () in
-    let%lwt fd = open_tcp_client (inet_addr_of_string host, port) in
-    let%lwt tls = Tls_lwt.Unix.client_of_fd tls_client
-                                            ~host: tls_host
-                                            fd in
-    Tls_lwt.of_t tls
-    |> Lwt.return_ok in
+    match Tls.Config.client ~authenticator () with
+    | Ok tls_client ->
+        let%lwt fd = open_tcp_client (inet_addr_of_string host, port) in
+        let%lwt tls = Tls_lwt.Unix.client_of_fd tls_client
+                                                ~host: tls_host
+                                                fd in
+        Tls_lwt.of_t tls
+        |> Lwt.return_ok
+    | Error _ as e -> Lwt.return e in
 
   let use_plain () =
     let%lwt fd = open_tcp_client (inet_addr_of_string host, port) in
@@ -164,11 +166,11 @@ let connect ?(settings = None) uri =
   | Some "wss" ->
       begin match tls_host host with
       | Ok tls_host -> init_websocket uri (use_tls tls_host)
-      | Error (`Msg msg) -> Lwt.return_error msg
+      | Error _ as e -> Lwt.return e
       end
   | Some "ws"
   | None -> init_websocket uri use_plain
-  | Some _ -> Lwt.return_error "Invalid uri scheme"
+  | Some _ -> Lwt.return_error (`Msg "Invalid uri scheme")
 
 let create ?settings uri proc =
   let buf = Buffer.create 64 in
@@ -265,7 +267,7 @@ let create_exc ?settings uri proc =
   let settings = Option.value ~default: Settings.default settings in
   match%lwt create ~settings uri proc with
   | Ok t -> Lwt.return t
-  | Error error -> Lwt.fail_with error
+  | Error (`Msg error) -> Lwt.fail_with error
 
 let send_op { mqueue; state; _ } finish op payload =
   match state with

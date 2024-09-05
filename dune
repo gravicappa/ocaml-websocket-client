@@ -3,8 +3,9 @@
  (public_name websocket-client)
  (libraries lwt.unix
             uri
-            nocrypto
-            nocrypto.unix
+            base64
+            mirage-crypto
+            digestif
             tls
             tls-lwt)
  (preprocess (pps lwt_ppx)))

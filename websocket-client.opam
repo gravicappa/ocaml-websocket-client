@@ -11,4 +11,6 @@ depends: ["lwt"
           "base64"
           "digestif"
           "uri"
-          "tls" {>= "1.0.0"}]
+          "tls" {>= "1.0.0"}
+          "tls-lwt" {>= "1.0.0"}
+          ]

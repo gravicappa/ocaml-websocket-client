@@ -43,18 +43,34 @@ type t = channel
 
 let handshake_suffix = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
-let is_key_ok (Util.Base64.Base64 key) resp_key =
+module Base64 = struct
+  type t = Base64 of string
+
+  let create str = Base64 str
+
+  let of_string str = str |> Base64.encode_string |> create
+
+  let as_string (Base64 str) = str
+end
+
+let sha1 str =
+  let module Hash = Digestif.SHA1 in
+  str
+  |> Hash.digest_string
+  |> Hash.to_raw_string
+
+let is_key_ok (Base64.Base64 key) resp_key =
   let e = (key ^ handshake_suffix)
-          |> Util.sha1
-          |> Util.Base64.of_string
-          |> Util.Base64.as_string in
+          |> sha1
+          |> Base64.of_string
+          |> Base64.as_string in
   e = resp_key
 
 let uri_host uri = Uri.host_with_default ~default: "127.0.0.1" uri
 
 let uri_port uri = Uri.port uri |> Option.value ~default: 443
 
-let make_request_headers uri (Util.Base64.Base64 key) =
+let make_request_headers uri (Base64.Base64 key) =
   let path = match Uri.path uri with
              | "" -> "/"
              | path -> path in
@@ -100,7 +116,7 @@ let parse_response input key =
   | str -> Lwt.return_error (`Msg ("Wrong response status: " ^ str))
 
 let handshake uri input output =
-  let key = Util.(random_string 16 |> Base64.of_string) in
+  let key = Mirage_crypto_rng.generate 16 |> Base64.of_string in
   let hdr = make_request_headers uri key in
   let%lwt () =
     Lwt_io.write_from_string_exactly output hdr 0 (String.length hdr) in
@@ -252,7 +268,6 @@ let create ?settings uri proc =
         ping_loop mqueue seconds :: promises
     | _ -> promises in
 
-  Util.init_random ();
   match%lwt connect ~settings uri with
   | Error error -> Lwt.return_error error
   | Ok (input, output) ->

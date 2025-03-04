@@ -50,7 +50,7 @@ module Response = struct
 end
 
 let create_mask = function
-  | Masked -> Util.random_bytes 4
+  | Masked -> Mirage_crypto_rng.generate 4 |> Bytes.unsafe_of_string
   | Unmasked -> Bytes.empty
 
 let read_length input buf = function

@@ -5,6 +5,7 @@
             uri
             base64
             mirage-crypto
+            mirage-crypto-rng
             digestif
             tls
             tls-lwt)

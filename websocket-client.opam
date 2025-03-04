@@ -1,5 +1,5 @@
 opam-version: "2.0"
-version: "0.1.1"
+version: "0.2.0"
 maintainer: "Ramil Farkhshatov <ramil.fh@ya.ru>"
 authors: ["Ramil Farkhshatov"]
 license: "LGPLv3 with OpenSSL linking exception"

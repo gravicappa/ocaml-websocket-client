@@ -124,11 +124,10 @@ let handshake uri input output =
   parse_response input key
 
 let inet_addr_of_string host =
-  try Unix.inet_addr_of_string host
+  try Ok (Unix.inet_addr_of_string host)
   with Failure _ ->
-    try (Unix.gethostbyname host).h_addr_list.(0)
-    with Not_found ->
-      Printf.sprintf "cannot resolve '%s'" host |> failwith 
+    try Ok (Unix.gethostbyname host).h_addr_list.(0) with
+    Not_found -> Error (`Msg (Printf.sprintf "cannot resolve '%s'" host))
 
 let open_tcp_client (address, port) =
   let fd = Lwt_unix.(socket PF_INET SOCK_STREAM 0) in
@@ -140,6 +139,7 @@ let open_tcp_client (address, port) =
 let default_tls_settings = `Ca_dir "/etc/ssl/certs"
 
 let connect ?(settings = None) uri =
+  let ( let*? ) = Lwt_result.bind in
   let settings = Option.value ~default: Settings.default settings in
   let uri = Uri.of_string uri in
   let host = uri_host uri in
@@ -153,16 +153,17 @@ let connect ?(settings = None) uri =
 
     match Tls.Config.client ~authenticator () with
     | Ok tls_client ->
-        let%lwt fd = open_tcp_client (inet_addr_of_string host, port) in
-        let%lwt tls = Tls_lwt.Unix.client_of_fd tls_client
-                                                ~host: tls_host
-                                                fd in
+        let*? address = inet_addr_of_string host |> Lwt.return in
+        let%lwt fd = open_tcp_client (address, port) in
+        let%lwt tls =
+          Tls_lwt.Unix.client_of_fd tls_client ~host: tls_host fd in
         Tls_lwt.of_t tls
         |> Lwt.return_ok
     | Error _ as e -> Lwt.return e in
 
   let use_plain () =
-    let%lwt fd = open_tcp_client (inet_addr_of_string host, port) in
+    let*? address = inet_addr_of_string host |> Lwt.return in
+    let%lwt fd = open_tcp_client (address, port) in
     let input = Lwt_io.of_fd ~mode: Input fd in
     let output = Lwt_io.of_fd ~mode: Output fd in
     Lwt.return_ok (input, output) in
